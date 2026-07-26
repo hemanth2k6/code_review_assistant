@@ -1,3 +1,4 @@
+import tiktoken
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 from langchain.output_parsers import PydanticOutputParser
@@ -9,7 +10,9 @@ llm= ChatGoogleGenerativeAI(
     temperature = 0,
     api_key = settings.google_api_key
 )
-
+def count_tokens(text: str) -> int:
+    encoding = tiktoken.get_encoding("cl100k_base")
+    return len(encoding.encode(text))
 parser = PydanticOutputParser(pydantic_object=CodeReviewResult)
 
 system_template = """
@@ -38,7 +41,13 @@ human_message_prompt = HumanMessagePromptTemplate.from_template(human_template)
 chat_prompt = ChatPromptTemplate.from_messages([system_message_prompt, human_message_prompt])
 review_chain = chat_prompt | llm | parser
 async def generate_code_review(diff: str, context: str) -> CodeReviewResult:
-    print("Sending code to gemini for advanced review...")
+    total_text = diff + context
+    token_count = count_tokens(total_text)
+    print(f"Total tokens for this PR: {token_count}")
+    if token_count > settings.max_tokens:
+        print(f"BLOCKED: PR token count ({token_count}) exceeds budget limit ({settings.max_tokens})")
+        return CodeReviewResult(comments=[])
+    print("Budget approved. Sending code to gemini for structured review...")
     response = await review_chain.ainvoke({
         "diff": diff,
         "context": context,
