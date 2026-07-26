@@ -1,4 +1,5 @@
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 from app.core.config import settings
 llm= ChatGoogleGenerativeAI(
     model = "gemini-1.5-flash",
@@ -6,18 +7,33 @@ llm= ChatGoogleGenerativeAI(
     api_key = settings.google_api_key
 )
 
+system_template = """
+You are an elite Senior Security and Software Engineer reviewing a GitHub Pull Request.
+Your goal is to find critical security vulnerabilities, performance bottlenecks, and architectural flaws.
+
+STRICT RULES:
+1. DO NOT nitpick. Ignore minor style issues, missing commas, or simple typos.
+2. Focus ONLY on the code changes provided in the diff.
+3. Use the file context to understand the surrounding logic, but your critique must only be about the diff.
+4. Keep your review concise, professional, and actionable.
+5. If the code looks perfectly fine and secure, simply state: "Code looks solid. No critical issues found"
+"""
+system_message_prompt = SystemMessagePromptTemplate.from_template(system_template)
+
+human_template = """
+File Context (For Reference)
+{context}
+
+Pull Request Diff (The changes to Review):
+{diff}
+"""
+human_message_prompt = HumanMessagePromptTemplate.from_template(human_template)
+chat_prompt = ChatPromptTemplate.from_messages([system_message_prompt, human_message_prompt])
+review_chain = chat_prompt | llm
 async def generate_code_review(diff: str, context: str) -> str:
-    basic_prompt = f"""
-    You are a Senior Software Engineer reviewing a Pull Request.
-
-    Here is the exact code diff (changes):
-    {diff}
-
-    Here is the full file context for reference:
-    {context}
-
-    Give a very brief, 1-sentence review of these changes.
-    """
-    print("Sending code to Gemini for review...")
-    response = await llm.ainvoke(basic_prompt)
+    print("Sending code to gemini for advanced review...")
+    response = await review_chain.ainvoke({
+        "diff": diff,
+        "context": context
+    })
     return response.content
