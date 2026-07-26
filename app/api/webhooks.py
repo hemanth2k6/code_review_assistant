@@ -33,15 +33,27 @@ async def handle_webhook(request:Request,x_hub_signature_256:str=Header(None)):
         installation_id = payload["installation"]["id"]
         print(f"Received a Pull Request event! Action: {action} on {repo_full_name} PR #{pr_number}")
         if action in ["opened", "synchronize"]:
-            from app.services.github import get_pr_diff, extract_changed_files_from_diff, get_file_context
+            from app.services.github import get_pr_diff, extract_changed_files_from_diff, get_file_context, post_pr_line_comment
+            from app.services.ai import generate_code_review
             diff_text = await get_pr_diff(repo_full_name, pr_number, installation_id)
             changed_files = extract_changed_files_from_diff(diff_text)
-            print(f"Files changed in this PR: {changed_files}")
+            commit_id = payload["pull_request"]["head"]["sha"]
             if changed_files:
                 first_file = changed_files[0]
                 file_context = await get_file_context(repo_full_name, first_file, installation_id)
-                print(f"Successfully fetched context for {first_file} Length: {len(file_context)} characters")
-        return {"status": "success","message":f"Pull request event '{action}' processed"}
+                review_result = await generate_code_review(diff=diff_text, context=file_context)
+                print(f"AI generated {len(review_result.comments)} comments")
+                for review in review_result.comments:
+                    formatted_comment = f"**[{review.severity} Severity]**\n{review.comment}"
+                    await post_pr_line_comment(
+                        repo_full_name=repo_full_name,
+                        pr_number=pr_number,
+                        installation_id=installation_id,
+                        commit_id=commit_id,
+                        file_path=first_file,
+                        line_number=review.line_number,
+                        body=formatted_comment
+                    )
     if event_type == "ping":
         print("Github sent a ping to test the connection")
         return {"status": "success","message": "Pong"}

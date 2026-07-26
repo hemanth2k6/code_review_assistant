@@ -50,8 +50,38 @@ async def get_file_context(repo_full_name: str, file_path: str,installation_id: 
             return "File not found or was deleted"
         response.raise_for_status()
         data = response.json()
-        file_path = base64.b64decode(data["content"]).decode("utf-8")
-        return file_path
+        file_content = base64.b64decode(data["content"]).decode("utf-8")
+        return file_content
 def extract_changed_files_from_diff(diff_text: str) -> list:
     file_paths = re.findall(r'^\+\+\+ b/(.+)$', diff_text, re.MULTILINE)
     return file_paths
+
+async def post_pr_line_comment(
+    repo_full_name: str,
+    pr_number: int,
+    installation_id: int,
+    commit_id: str,
+    file_path: str,
+    line_number: int,
+    body: str
+) -> None:
+    token = await get_installation_token(installation_id)
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    url = f"https://api.github.com/repos/{repo_full_name}/pulls/{pr_number}/comments"
+    payload = {
+        "body": body,
+        "commit_id": commit_id,
+        "path": file_path,
+        "line": line_number,
+        "side": "RIGHT"
+    }
+    async with httpx.AsyncClient() as client:
+        response = await client.post(url, headers=headers, json=payload)
+        if response.status_code == 422:
+            print(f"Skipped comment on line {line_number}: That line wasn't part of the diff")
+        else:
+            response.raise_for_status()
+            print(f"Successfully posted comment on line {line_number}")

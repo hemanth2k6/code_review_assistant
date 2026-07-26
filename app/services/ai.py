@@ -21,7 +21,7 @@ STRICT RULES:
 2. Focus ONLY on the code changes provided in the diff.
 3. Use the file context to understand the surrounding logic, but your critique must only be about the diff.
 4. Keep your review concise, professional, and actionable.
-
+5. If the code looks perfectly fine and secure, return an empty list of comments.
 
 {format_instructions}
 """
@@ -37,7 +37,7 @@ Pull Request Diff (The changes to Review):
 human_message_prompt = HumanMessagePromptTemplate.from_template(human_template)
 chat_prompt = ChatPromptTemplate.from_messages([system_message_prompt, human_message_prompt])
 review_chain = chat_prompt | llm | parser
-async def generate_code_review(diff: str, context: str):
+async def generate_code_review(diff: str, context: str) -> CodeReviewResult:
     print("Sending code to gemini for advanced review...")
     response = await review_chain.ainvoke({
         "diff": diff,
