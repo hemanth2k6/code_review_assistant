@@ -5,14 +5,21 @@ from langchain.output_parsers import PydanticOutputParser
 from app.core.config import settings
 from app.schemas.models import CodeReviewResult
 
-llm= ChatGoogleGenerativeAI(
+primary_llm = ChatGoogleGenerativeAI(
+    model = "gemini-1.5-pro",
+    temperature = 0,
+    api_key = settings.google_api_key,
+    max_retries = 2
+)
+
+fallback_llm = ChatGoogleGenerativeAI(
     model = "gemini-1.5-flash",
     temperature = 0,
     api_key = settings.google_api_key
 )
-def count_tokens(text: str) -> int:
-    encoding = tiktoken.get_encoding("cl100k_base")
-    return len(encoding.encode(text))
+
+robust_llm = primary_llm.with_fallbacks([fallback_llm])
+
 parser = PydanticOutputParser(pydantic_object=CodeReviewResult)
 
 system_template = """
@@ -39,7 +46,13 @@ Pull Request Diff (The changes to Review):
 """
 human_message_prompt = HumanMessagePromptTemplate.from_template(human_template)
 chat_prompt = ChatPromptTemplate.from_messages([system_message_prompt, human_message_prompt])
-review_chain = chat_prompt | llm | parser
+
+review_chain = chat_prompt | robust_llm | parser
+
+def count_tokens(text: str) -> int:
+    encoding = tiktoken.get_encoding("cl100k_base")
+    return len(encoding.encode(text))
+
 async def generate_code_review(diff: str, context: str) -> CodeReviewResult:
     total_text = diff + context
     token_count = count_tokens(total_text)
