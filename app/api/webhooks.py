@@ -32,17 +32,23 @@ async def handle_webhook(request:Request,x_hub_signature_256:str=Header(None)):
         repo_full_name = payload["repository"]["full_name"]
         installation_id = payload["installation"]["id"]
         print(f"Received a Pull Request event! Action: {action} on {repo_full_name} PR #{pr_number}")
+
         if action in ["opened", "synchronize"]:
             from app.services.github import get_pr_diff, extract_changed_files_from_diff, get_file_context, post_pr_line_comment
             from app.services.ai import generate_code_review
+            
             diff_text = await get_pr_diff(repo_full_name, pr_number, installation_id)
             changed_files = extract_changed_files_from_diff(diff_text)
             commit_id = payload["pull_request"]["head"]["sha"]
-            if changed_files:
-                first_file = changed_files[0]
-                file_context = await get_file_context(repo_full_name, first_file, installation_id)
+            print(f"Files changed in this PR: {len(changed_files)} files detected.")
+            for current_file in changed_files:
+                print(f"---Reviewing chunk: {current_file}---")
+                file_context = await get_file_context(repo_full_name, current_file, installation_id)
+                if file_context == "File not found or was deleted":
+                    print(f"Skipping {current_file} because it was deleted.")
+                    continue
                 review_result = await generate_code_review(diff=diff_text, context=file_context)
-                print(f"AI generated {len(review_result.comments)} comments")
+                print(f"AI generate {len(review_result.comments)} comments for {current_file}")
                 for review in review_result.comments:
                     formatted_comment = f"**[{review.severity} Severity]**\n{review.comment}"
                     await post_pr_line_comment(
@@ -50,11 +56,12 @@ async def handle_webhook(request:Request,x_hub_signature_256:str=Header(None)):
                         pr_number=pr_number,
                         installation_id=installation_id,
                         commit_id=commit_id,
-                        file_path=first_file,
+                        file_path=current_file,
                         line_number=review.line_number,
                         body=formatted_comment
                     )
+
     if event_type == "ping":
         print("Github sent a ping to test the connection")
         return {"status": "success","message": "Pong"}
-    return {"status": "ignored", "message": f"Event '{event_type}' ignored"}
+    return {"status": "success", "message": f"Pull request event '{action}' processed"}
